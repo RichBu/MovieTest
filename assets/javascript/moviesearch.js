@@ -3,8 +3,8 @@
 
 var configData = {
     theaterSearchDist: 5, //2 miles search earea
-//    restaurantSearchDist: 2, //2 miles
-    restaurantSearchDist: 2 * 1609.34,
+    //    restaurantSearchDist: 2, //2 miles
+    restaurantSearchDist: 2 * 1609.34,  //because google is in meters
     dispRichOutput: true
 };
 
@@ -967,13 +967,14 @@ var outputMoviesByMovieTime = function () {
     var divOutput = $("#movieOutput");
     divOutput.html("");
     var mfStack = theaterObj.movieFoundStack;  //shorthand
+    var mStack = theaterObj.movieStack;  //shorthand
     var numFound = mfStack.length;
     //sort the movies by start time
     mfStack.sort(function (a, b) { return a.startTime_ts - b.startTime_ts });
 
     //move to local variables for show and tell purposes
     //theaterObj.retMatchRecFromMovieStack(mfStack[theaterObj.numMovieClickedIndex].movie_id);
-    var movieRec = theaterObj.retMatchRecFromMovieStack(mfStack[theaterObj.numMovieClickedIndex].movie_id);
+    var movieRec = theaterObj.retMatchRecFromMovieStack(mStack[theaterObj.numMovieClickedIndex].movie_id);
     console.log("back from match");
     var movieTitle = movieRec.title;
     var movieRunTime = movieRec.runtime;
@@ -1218,7 +1219,8 @@ var getLocation = function () {
     } else {
         //no GPS allowed
         alert("Geolocation is not supported by this browser.");
-    }
+    };
+    document.getElementById("container-map").style.display = "none";
 };
 
 var showPosition = function (position) {
@@ -1258,15 +1260,32 @@ var evalPicClick = function () {
 
 var evalTheaterClick = function () {
     //theater option clicked
-    var imgRow = $(this).attr("data-theater-ind");
-    console.log("theater #" + imgRow);
+    var theaterRow = $(this).attr("data-theater-ind");
+    console.log("theater #" + theaterRow);
     var mfStack = theaterObj.movieFoundStack;  //shorthand
-    var currCinemaRec = theaterObj.retMatchRecFromCinemaStack(mfStack[imgRow].cinema_id);
+    var currCinemaRec = theaterObj.retMatchRecFromCinemaStack(mfStack[theaterRow].cinema_id);
+    var ctRec = theaterObj.currTheater;   //shorthand for current theater record
     var geoLat = currCinemaRec.address.geoLocLat;
     var geoLong = currCinemaRec.address.geoLocLong;
 
+    //global variable for the theater location
     testTheater.lat = geoLat;
     testTheater.lng = geoLong;
+
+    //move to current record spot
+    ctRec.cinema_id = currCinemaRec.cinema_id;
+    ctRec.distToCenter = currCinemaRec.distToCenter;
+    ctRec.telephone = currCinemaRec.telephone;
+    ctRec.travelTime = currCinemaRec.travelTime;
+    ctRec.url = currCinemaRec.url;
+    ctRec.address.city = currCinemaRec.address.city;
+    ctRec.address, dispText = currCinemaRec.address.dispText;
+    ctRec.address.geoLocLat = currCinemaRec.address.geoLocLat;
+    ctRec.address.geoLocLong = currCinemaRec.address.geoLocLong;
+    ctRec.address.houseNum = currCinemaRec.address.houseNum;
+    ctRec.address.state = currCinemaRec.address.state;
+    ctRec.address.street = currCinemaRec.address.street;
+    ctRec.address.zipCode = currCinemaRec.address.zipCode;
 
     document.getElementById("container-map").style.display = "block";
     // popup is shown and map is not visible
@@ -1275,5 +1294,52 @@ var evalTheaterClick = function () {
 
     console.log("(" + numeral(geoLat).format("+0000.000000") + "," + numeral(geoLong).format("+0000.000000") + ")");
 
-}
+};
+
+
+//these are Open Table API searches.  
+//move to restaurant search later
+var restRecOpenTableType = { //record coming back from OpenTable
+    name: "",
+    address = {
+        dispText: ""
+        houseNum: "",
+        street: "",
+        city: "",
+        state: "",
+        zipCode: "",
+        geoLocLat: 0,
+        geoLocLong: 0
+    },
+    urlOpenTableSite: "",  //open table url
+    urlOpenTableReservation: "",
+    urlRestaurang: "",
+    distToTheater: 0,
+    travelTimeToTheater: 0,
+    distToHome: 0,
+    travelTimeToHome: 0,
+    eatingTime: 0,
+};
+
+var restOpenTableObj = { //everything for OpenTable
+    currRestOpenTable : restRecOpenTableType,
+    restFoundStack : [].  //array of restRecOpenTableType
+    
+    clearRestFoundStack = function() {
+        //clear out the entire stack
+        for (var i=0; i<restOpenTableObj.restFoundStack.length; i++ ) {
+            restOpenTableObj.restFoundStack.pop();
+        };
+    },
+
+    addToRestFoundStack = function() {
+            //adds the currRestOpen rec to the stack
+            var copyOfRec = jQuery.extend(true, {}, this.currRestOpenTable);
+            this.restFoundStack.push(copyOfRec);
+    },
+
+    retIsRestOnOpenTable = function() {
+        
+    }
+};
 

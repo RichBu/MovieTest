@@ -1301,8 +1301,8 @@ var evalTheaterClick = function () {
 //move to restaurant search later
 var restRecOpenTableType = { //record coming back from OpenTable
     name: "",
-    address = {
-        dispText: ""
+    address : {
+        dispText: "",
         houseNum: "",
         street: "",
         city: "",
@@ -1323,23 +1323,23 @@ var restRecOpenTableType = { //record coming back from OpenTable
 
 var restOpenTableObj = { //everything for OpenTable
     currRestOpenTable : restRecOpenTableType,
-    restFoundStack : [].  //array of restRecOpenTableType
+    restFoundStack : [],  //array of restRecOpenTableType
     
-    clearRestFoundStack = function() {
+    clearRestFoundStack : function() {
         //clear out the entire stack
         for (var i=0; i<restOpenTableObj.restFoundStack.length; i++ ) {
             restOpenTableObj.restFoundStack.pop();
         };
     },
 
-    addToRestFoundStack = function() {
+    addToRestFoundStack : function() {
             //adds the currRestOpen rec to the stack
             var copyOfRec = jQuery.extend(true, {}, this.currRestOpenTable);
             this.restFoundStack.push(copyOfRec);
     },
 
-    retIsRestOnOpenTable = function() {
-        
+    retIsRestOnOpenTable : function() {
+
     }
 };
 

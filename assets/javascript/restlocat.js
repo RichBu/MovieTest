@@ -23,15 +23,20 @@ var configData = {
 var map;
 var infowindow;
 var testTheater = { lat: 41.9499, lng: -87.6638 };
+var testHome;
+
 
 //Initial Function to Load Map
-function initMap() {
+var initMap = function () {
     //Using Coordinates for Music Box Theater. 
     //This would be coordinates of theater pulled in from user selection
     //testTheater = { lat: 41.9499, lng: -87.6638 };
 
+    testHome = {lat: parseFloat(theaterObj.searchLoc.lat), lng: parseFloat(theaterObj.searchLoc.long)};
+
     //Map Options
     map = new google.maps.Map(document.getElementById('map'), {
+
         center: testTheater,
         zoom: 15,
         //Custom Styles for Map Background
@@ -270,10 +275,23 @@ function initMap() {
         ]
     });
 
+    //Add Home Marker
+    var homeIcon = {
+        //Variable to add in Custom Image of Movie theater
+        url: "assets/images/yellow-house.gif", // url
+        scaledSize: new google.maps.Size(50, 50), // scaled size
+        origin: new google.maps.Point(0, 0), // origin
+        anchor: new google.maps.Point(0, 0) // anchor
+    }; var marker = new google.maps.Marker({
+        position: testHome,
+        map: map,
+        icon: homeIcon
+    });
+
     //Add Theater Marker
     var theaterIcon = {
         //Variable to add in Custom Image of Movie theater
-        url: "images/movie.png", // url
+        url: "assets/images/movie.png", // url
         scaledSize: new google.maps.Size(50, 50), // scaled size
         origin: new google.maps.Point(0, 0), // origin
         anchor: new google.maps.Point(0, 0) // anchor
@@ -284,8 +302,13 @@ function initMap() {
     });
 
     //Info Window for Theater Marker
+
+    //Variable Used to Define Directions from Movie Theater to Selected Restaurant
+    var theaterDirectionsURL = 'https://www.google.com/maps/dir/?api=1&origin=' + theaterObj.searchLoc.lat + ', ' + theaterObj.searchLoc.long + '&destination=' + theaterObj.currTheaterDisp.address.geoLocLat + ', ' + theaterObj.currTheaterDisp.address.geoLocLong + '&travelmode=driving';
+
     var infoWindow = new google.maps.InfoWindow({
-        content: '<h2>Movie Theater</h2>'
+
+        content: '<div><p id="theatre-name-infowindow"><strong>' + theaterObj.currTheaterDisp.theaterName + '</strong></p>' + '<p><strong><a href="' + theaterObj.currTheaterDisp.url + '"target="_blank">Website</a></strong></p>' + '<p><strong><a href="' + theaterDirectionsURL + '"target="_blank">Directions to Theater</a></strong></p></div>'
     });
 
     //Event Listener for Theater Marker
@@ -317,7 +340,7 @@ function initMap() {
     function createMarker(place) {
         //Variable to Define and Resize Icon Image based on Google Places Type, e.g. restaurant
         var icon = {
-            url: "images/plate.png", // url
+            url: "assets/images/plate.png", // url
             scaledSize: new google.maps.Size(30, 30), // scaled size
             origin: new google.maps.Point(0, 0), // origin
             anchor: new google.maps.Point(0, 0) // anchor
@@ -357,15 +380,23 @@ function initMap() {
                         place.price_level = "Very Expensive";
                     };
 
+                    //If Else Statement to Assign new Value for Open or Closed Now in infoWindow
+                    if (place.opening_hours.open_now === true) {
+                        place.opening_hours.open_now = "Open Now"
+                    } else {
+                        place.opening_hours.open_now = "Closed Now"
+                    };
+
                     //Variable Used to Define Directions from Movie Theater to Selected Restaurant
                     var directionsURL = 'https://www.google.com/maps/dir/?api=1&origin=' + testTheater.lat + ', ' + testTheater.lng + '&destination=' + place.formatted_address + '&travelmode=driving';
 
                     //Variable to more easily see all elements added to InfoWindow
-                    var urlString = '<div><strong>' + place.name + '</strong><br>' + '<br>' + '<strong><a href="' + place.website;
-                    urlString += '"target="_blank">Website</a></strong>' + '   |   ' + '<strong><a href="' + directionsURL + '"target="_blank">Directions from Theater to Restaurant</a></strong>' + '<p><strong>Address: </strong>' + place.formatted_address + '</p>';
+                    var urlString = '<div id="theatre-infowindow"><strong>' + place.name + '</strong><br>' + '<br>' + '<strong><a href="' + place.website;
+                    urlString += '"target="_blank">Website</a></strong>' + '   |   ' + '<strong><a href="' + directionsURL + '"target="_blank">Directions to Restaurant from Theater</a></strong>' + '<p><strong>Address: </strong>' + place.formatted_address + '</p>';
                     urlString += '<p><strong>Phone: </strong>' + place.formatted_phone_number + '</p>';
                     urlString += '<p><strong>Rating: </strong>' + place.rating + '</p>' + '<p><strong>Price level: </strong>' + place.price_level + '</p>';
-                    urlString += '<p><strong>Open Now: </strong>' + place.opening_hours.open_now + '</p>' + '</div>';
+                    urlString += '<p><strong>Hours: </strong>' + place.opening_hours.weekday_text + '</p>';
+                    urlString += '<p><strong>' + place.opening_hours.open_now + '</strong></p>' + '</div>';
                     infowindow.setContent(urlString);
 
                 }

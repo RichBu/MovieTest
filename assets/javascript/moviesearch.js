@@ -2,10 +2,13 @@
 //script files   
 
 var configData = {
-    theaterSearchDist: 5, //2 miles search earea
+    theaterSearchDist: 6, //2 miles search earea
     //    restaurantSearchDist: 2, //2 miles
     restaurantSearchDist: 2 * 1609.34,  //because google is in meters
-    dispRichOutput: true
+    dispRichOutput: false,
+    dispRichTestFalseGPS: false,   //punch in known values for GPS
+    keyAPIgoogle: "AIzaSyAE03QBe5yDXRr1fzDvkWs9i_E_BIyCDhk",
+    keyAPIgoogleRich: "AIzaSyCrHKoPEISSoDAClePzcHVJVHB7G1-xb6s"
 };
 
 var modalWaitSearch1 = document.getElementById('modSearch1'); //earch all records
@@ -13,8 +16,13 @@ var modalWaitSearch2 = document.getElementById('modSearch2'); //search movies
 var modalWaitSearch3 = document.getElementById('modSearch3'); //search cinemas
 var modalWaitLocation = document.getElementById('modLocation'); //location
 var modalWaitMovieTimes = document.getElementById('modMovieTimes'); //movie times
-//var modalMap = document.getElementById('modMap'); //map modal popup
+var modalMap = document.getElementById('modMap'); //map modal popup
+var closeModMap = document.getElementById("closeModMap");
 
+//When the user clicks on <span> (x), close the modal
+closeModMap.onclick = function () {
+    modalMap.style.display = "none";
+};
 
 var dataSrch = "";
 var dataSrchDone = false;
@@ -52,9 +60,11 @@ var movieFoundType = { //movies found
     startTime_ts: 0, //time stamp
     runTime_min: 0, //in minutes
     finishTime_ts: 0,
-    distTravel: 0,
-    timeTravel: 0,
-    timeToLeave: 0,
+    distToCenter: 0,
+    travelToTime: 0,
+    travelFromTime: 0,
+    timeToLeave: 0,  //time that need to leave calc backwards
+    timeBack: 0     //time back home
 };
 
 var theaterFoundType = {  //this is for every theater that was found
@@ -72,7 +82,29 @@ var theaterFoundType = {  //this is for every theater that was found
         geoLocLong: 0
     },
     distToCenter: 0,
-    travelTime: 0
+    travelToTime: 0,
+    travelFromTime: 0
+};
+
+var theaterMatchType = {  //this is for all of the matches for movies found
+    index: 0, //when doing a match do know which item on stack it is 
+    cinema_id: "",      //id to link to name of theater
+    theaterName: "",   //actual name of the theater
+    address: {
+        dispText: "",
+        houseNum: "",
+        street: "",
+        city: "",
+        state: "",
+        zipCode: "",
+        geoLocLat: 0,
+        geoLocLong: 0
+    },
+    distToCenter: 0,
+    travelToTime: 0,
+    travelFromTime: 0,
+    movieTimes: [],     //all the movie times for the movie
+    movieTimesStr: ""
 };
 
 var theaterObj = {   //main object for the whole theater
@@ -90,7 +122,8 @@ var theaterObj = {   //main object for the whole theater
             geoLocLong: 0,
         },
         distToCenter: 0,
-        travelTime: 0,
+        travelToTime: 0,
+        travelFromTime: 0,
         url: "",
         telephone: "",
         movie: {
@@ -105,9 +138,8 @@ var theaterObj = {   //main object for the whole theater
     },
 
     currMovieRec: movieRecType,
-
     currTheaterFound: theaterFoundType,
-
+    currTheaterDisp: theaterFoundType,
     currMovieFoundRec: movieFoundType,
 
     searchParam: {
@@ -128,8 +160,25 @@ var theaterObj = {   //main object for the whole theater
     },
 
     //variables are here
+    searchLoc: {
+        lat: 0.0,
+        long: 0.0,
+        dist: 0.0,
+        addrSearchStr: "",
+        addrOriginalStr: ""   //used when first call the routine
+    },
+
+    geoLookup: {
+        recIndexOn: 0,
+        recIndexEnd: 0,
+        currStackWorkingOn: "",
+        geoDistFound: 0.0,
+        geoTimeTravel: 0.0
+    },
+
     theaterStack: [],      //array of theaters  --- treat as stack
     theatersFoundStack: [],  //all the theaters found
+    theatersMatchStack: [], //
     cinemaIDstack: [],     //to look up unique cinema ID's
     numCinemaConv: 0,       //which cinema ID converting
     numSearchConv: 0,      //storage for the loop going thru the conversion
@@ -141,6 +190,7 @@ var theaterObj = {   //main object for the whole theater
     movieStack: [],     //array of movieRecType, sorted by movie name
     genresStack: [],   //all the genres found
     movieFoundStack: [], //all the movies found
+    theaterPicked: 0,  //sent from index.html page
 
 
     buildSearchStr: function (typeSearch, indexNum) {
@@ -153,15 +203,13 @@ var theaterObj = {   //main object for the whole theater
         timeFromStr = moment().utc().format();
         timeToStr = moment().add(12, "hours").utc().format();
         if (typeSearch == 1) {
-            outString = SP.urlPart1 + SP.urlShowTimes + SP.urlQryKey + SP.qryGeoLocation + theaterObj.searchLat + "," + theaterObj.searchLon + SP.qryDistance + theaterObj.searchDist;
+            outString = SP.urlPart1 + SP.urlShowTimes + SP.urlQryKey + SP.qryGeoLocation + theaterObj.searchLoc.lat + "," + theaterObj.searchLoc.long + SP.qryDistance + theaterObj.searchLoc.dist;
             //outString = SP.urlPart1 + SP.urlShowTimes + SP.urlQryKey + SP.urlCountry + SP.urlBoundGeo;
             outString += SP.qryTimeFrom + timeFromStr + SP.qryTimeTo + timeToStr;
-            console.log(outString);
         };
         if (typeSearch == 2) {
             var cinemaID = theaterObj.cinemaIDstack[indexNum]; //pull from unique cinemaID's
             outString = SP.urlPart1 + SP.qryCinemas + cinemaID + SP.urlQryKey;
-            console.log(outString);
         };
         if (typeSearch == 3) {
             var movieID = theaterObj.movieIDvals[indexNum];
@@ -171,7 +219,6 @@ var theaterObj = {   //main object for the whole theater
             } else {
                 outString = SP.urlPart1 + SP.qryMovies + movieID + SP.urlQryKey + SP.urlLimit;
             }
-            console.log(outString);
         };
 
         return outString;
@@ -218,8 +265,9 @@ var theaterObj = {   //main object for the whole theater
 
     doSearchInitialDone: function () {
         //part one of search is done
+        modalWaitSearch1.style.display = "block";
+
         theaterObj.theaterResponseToStack(dataTheaterSearch);
-        console.log("... done ....");
         //all of the theater records are in
         //need to now get all the movie Id
         var tStack = theaterObj.theaterStack;
@@ -231,18 +279,22 @@ var theaterObj = {   //main object for the whole theater
             theaterObj.genresStack.pop();
         };
 
-        //push the first one
-        theaterObj.movieIDvals.push(tStack[0].theaterRec.movie_id);
         //loop thru and load single occurance of each movie ID
         for (var i = 0; i < numRecs; i++) {
-            if (tStack[i].theaterRec.movie_id == null) {
+            if (tStack[i].theaterRec.movie_id == null || tStack[i].theaterRec.movie_id == undefined) {
                 //sometimes searches come back with nothing
                 console.log("null at " + i);
             } else {
-                //loop thru all and add single movie_id's to array to search later
-                if (theaterObj.movieIDvals.indexOf(tStack[i].theaterRec.movie_id) < 0) {
-                    //the movie id has not been used
+                //only check if not the first record
+                //if first record, just push the record
+                if (theaterObj.movieIDvals.length === 0) {
                     theaterObj.movieIDvals.push(tStack[i].theaterRec.movie_id);
+                } else {
+                    //loop thru all and add single movie_id's to array to search later
+                    if (theaterObj.movieIDvals.indexOf(tStack[i].theaterRec.movie_id) < 0) {
+                        //the movie id has not been used
+                        theaterObj.movieIDvals.push(tStack[i].theaterRec.movie_id);
+                    };
                 };
             };
         };
@@ -275,7 +327,6 @@ var theaterObj = {   //main object for the whole theater
             })
                 .done(function (dataSrch, textStatus, jqXHR) {
                     console.log("HTTP Request Succeeded: " + jqXHR.status);
-                    console.log(dataSrch);
                     dataTheaterSearch = jQuery.extend(true, {}, dataSrch);
                     dataSrchDone = true;
                     theaterObj.doMovieSearchDone(indexNum);
@@ -378,8 +429,6 @@ var theaterObj = {   //main object for the whole theater
             for (var k = 0; k < theaterObj.theatersFoundStack.length; k++) {
                 theaterObj.theatersFoundStack.pop();
             };
-            console.log("theaters found stack ");
-            console.log(theaterObj.theatersFoundStack);
             theaterObj.doCinemaSearch(theaterObj.numCinemaConv);
         };
     },
@@ -403,7 +452,6 @@ var theaterObj = {   //main object for the whole theater
             })
                 .done(function (dataSrch, textStatus, jqXHR) {
                     console.log("HTTP Request Succeeded: " + jqXHR.status);
-                    console.log(dataSrch);
                     dataTheaterSearch = jQuery.extend(true, {}, dataSrch);
                     dataSrchDone = true;
                     theaterObj.doCinemaSearchDone(indexNum);
@@ -440,6 +488,8 @@ var theaterObj = {   //main object for the whole theater
         ctfRec.url = dataTheaterSearch.cinema.website;
         ctfRec.telephone = dataTheaterSearch.cinema.telephone;
         ctfRec.distToCenter = 0;
+        ctfRec.travelToTime = 0;
+        ctfRec.travelFromTime = 0;
 
         var newRec = jQuery.extend(true, {}, ctfRec);
         theaterObj.theatersFoundStack.push(newRec);
@@ -449,6 +499,45 @@ var theaterObj = {   //main object for the whole theater
             //do another search
             theaterObj.doCinemaSearch(theaterObj.numCinemaConv);
         } else {
+            theaterObj.geoDistHomeToTheater_all_start();
+        };
+    },
+
+    geoDistHomeToTheater_all_start: function () {
+        var stackToUse = "TF";
+        var searchStack;
+        var indexNum = 0;
+        if (stackToUse === "TF") {
+            //all of the theatersFoundStack
+            searchStack = theaterObj.theatersFoundStack;
+        };
+        theaterObj.geoLookup.recIndexEnd = searchStack.length;
+        theaterObj.geoLookup.recIndexOn = 0;
+        theaterObj.geoLookup.currStackWorkingOn = stackToUse;
+        geoDistHomeToTheater(stackToUse, indexNum)
+    },
+
+    geoDistHomeToTheater_next: function (stackToUse) {
+        var currStack;
+        var stackToUse = theaterObj.geoLookup.currStackWorkingOn;
+        var indexWorkingOn = theaterObj.geoLookup.recIndexOn;
+
+        if (stackToUse === "TF") {
+            searchStack = theaterObj.theatersFoundStack;
+            theaterObj.theatersFoundStack[indexWorkingOn].distToCenter = theaterObj.geoLookup.geoDistFound;
+            theaterObj.theatersFoundStack[indexWorkingOn].travelToTime = theaterObj.geoLookup.geoTimeTravel;
+            theaterObj.theatersFoundStack[indexWorkingOn].travelFromTime = theaterObj.geoLookup.geoTimeTravel;
+        };
+
+        //loop back and get the next one
+        theaterObj.geoLookup.recIndexOn++;
+        if (theaterObj.geoLookup.recIndexOn < theaterObj.geoLookup.recIndexEnd) {
+            //where to go next
+            if (stackToUse === "TF") {
+                geoDistHomeToTheater("TF", theaterObj.geoLookup.recIndexOn)
+            };
+        } else {
+            //where to go after found all the distances
             theaterObj.numCinemaConv = 0;
             modalWaitSearch3.style.display = "none";
             if (configData.dispRichOutput === true) {
@@ -457,9 +546,9 @@ var theaterObj = {   //main object for the whole theater
             } else {
                 displayMovies();
             };
-            //theaterObj.doSearch(3, theaterObj.numSearchConv);
         };
     },
+
 
     clearStack: function () {
         //clears all the current values in the array
@@ -481,8 +570,6 @@ var theaterObj = {   //main object for the whole theater
         //this is parsing for iShowTimes
         //stack is NOT CLEARED prior to entering
         var stArray = responseIn.showtimes;  //showtimes array shortcut
-        console.log("response in");
-        console.log(stArray);
 
         var currTheaterRec = theaterObj.currTheater.theaterRec; //shortcut
         var endVal = stArray.length;
@@ -546,7 +633,6 @@ var theaterObj = {   //main object for the whole theater
             var mStack = theaterObj.movieStack;
             var loopContinue = true;
             do {
-                console.log("i=" + i);
                 if (mRec.title.toUpperCase() > mStack[i].title.toUpperCase()) {
                     if (i === (endVal - 1)) {
                         //at the end of the loop, so push at end
@@ -602,10 +688,22 @@ var theaterObj = {   //main object for the whole theater
                 cfRec.cinema_id = tStack[i].theaterRec.cinema_id;
                 cfRec.startTime_utc = tStack[i].theaterRec.start_at;
                 cfRec.startTime_ts = parseInt(moment(tStack[i].theaterRec.start_at).unix());
+
                 //get the rest of the record
                 var matchMovieRec = theaterObj.retMatchRecFromMovieStack(searchMovieID);
                 cfRec.runTime_min = matchMovieRec.runtime;
                 cfRec.finishTime_ts = parseInt(moment(cfRec.startTime_utc).add(cfRec.runTime_min, "minutes").unix());
+
+                //rpb working ... calculate the time travel
+                var travelObj = theaterObj.retTravelTimeFromTheatersFoundStack(cfRec.cinema_id);
+                cfRec.distToCenter = travelObj.distToCenter;
+                //the travel time is in seconds as is the start time
+                //so the time that should leave should be simple subtration
+                cfRec.travelToTime = travelObj.travelToTime;
+                cfRec.travelFromTime = travelObj.travelFromTime;
+                cfRec.timeToLeave = cfRec.startTime_ts - parseInt(travelObj.travelToTime * 60.00);
+                cfRec.timeBack = cfRec.finishTime_ts + parseInt(travelObj.travelToTime * 60.00);
+
                 //now that the cfRec is filled, make a copy and pop to movieFoundStack
                 var copyOfRec = jQuery.extend(true, {}, cfRec);
                 mfStack.push(copyOfRec);
@@ -655,14 +753,141 @@ var theaterObj = {   //main object for the whole theater
         } while (continLoop);
     },
 
+    retTravelTimeFromTheatersFoundStack: function (cinemaIDmatch) {
+        //returns the distance and time for locations
+        var outputObj;
+        var tfStack = theaterObj.theatersFoundStack;
+        var iCurrRec = 0;
+        var continLoop = true;
+        do {
+            if (tfStack[iCurrRec].cinema_id === cinemaIDmatch) {
+                //there is a match
+                outputObj = {
+                    distToCenter: tfStack[iCurrRec].distToCenter,
+                    travelToTime: tfStack[iCurrRec].travelToTime,
+                    travelFromTime: tfStack[iCurrRec].travelFromTime
+                };
+                continLoop = false;
+            } else {
+                //step thru the loop now
+                iCurrRec++;
+                if (iCurrRec >= tfStack.length) {
+                    outputObj = null;
+                    continLoop = false;
+                };
+            };
+        } while (continLoop === true);
+        return outputObj;
+    },
+
+    createTheatersMatchStack: function (movieStackIndex) {
+        //create theatersMatchStack of all theaters for a movie 
+        //used when picking by movie and want to know the theaters and times
+        //playing at
+
+        //user selected a movie from the movieStack
+        //so, need to find the movie and then find all the theaters that have that
+        //movie.  movieFoundStack will do that, listing movies by mo
+
+        //very similar to the evalPicClick
+
+        //first clear out the theatersFoundStack
+        for (var i = 0; i < this.theatersMatchStack.length; i++) {
+            this.theatersMatchStack, pop();
+        };
+        //var matchRec = this.retMatchRecFromMovieStack(movieStackIndex);
+        var searchMovieID = this.movieStack[movieStackIndex].movie_id;
+        theaterObj.numMovieClickedIndex = parseInt(movieStackIndex);
+
+        theaterObj.doMoviesFoundList();
+
+        //so movies now are sorted by tiem across all cinemas
+        var tmStack = theaterObj.theatersMatchStack;    //output stack
+        var mfStack = theaterObj.movieFoundStack        //input stack
+        for (var i = 0; i < mfStack.length; i++) {
+            //so now step thru all of the movies found and find match cinemas
+            var searchCinemaID = mfStack[i].cinema_id;
+            var numTM = 0;  //number of theaters found on stack 
+            var continF = true;
+            continLoop = true;
+            if (tmStack.length === 0) {
+                //there is nothing on the stack, so push in a new rec
+                var newRec = jQuery.extend(true, {}, theaterMatchType);
+                newRec.index = numTM;
+                newRec.cinema_id = mfStack[i].cinema_id;
+                newRec.theaterName = "";
+                newRec.movieTimes.push(mfStack[i].startTime_utc);
+                newRec.movieTimesStr = moment(mfStack[i].startTime_utc).format("h:mma");
+                var newTheater = theaterObj.retMatchRecFromCinemaStack(searchCinemaID);
+                newRec.theaterName = newTheater.theaterName;
+                newRec.address.dispText = newTheater.address.dispText;
+                newRec.address.houseNum = newTheater.address.houseNum;
+                newRec.address.street = newTheater.address.street;
+                newRec.address.city = newTheater.address.city;
+                newRec.address.state = newTheater.address.state;
+                newRec.address.zipCode = newTheater.address.zipCode;
+                newRec.address.geoLocLat = newTheater.address.geoLocLat;
+                newRec.address.geoLocLong = newTheater.address.geoLocLong;
+                newRec.distToCenter = newTheater.distToCenter;
+                newRec.travelToTime = newTheater.travelToTime;
+                newRec.travelFromTime = newTheater.travelFromTime;
+
+                tmStack.push(newRec);
+                continLoop = false;
+            };
+            while (continLoop === true) {
+                //loop thru all the current recs and see if there is a match
+                if (tmStack[numTM].cinema_id === searchCinemaID) {
+                    //it matches so append to movie times
+                    tmStack[numTM].movieTimes.push(mfStack[i].startTime_utc);
+                    tmStack[numTM].movieTimesStr += "  " + moment(mfStack[i].startTime_utc).format("h:mma");
+                    continLoop = false;
+                } else {
+                    //doesn't match, check if it is the end
+                    numTM++;
+                    if (numTM >= tmStack.length) {
+                        //it is end of the line, so insert a new cinema record
+                        var newRec = jQuery.extend(true, {}, theaterMatchType);
+                        newRec.index = numTM;
+                        newRec.cinema_id = mfStack[i].cinema_id;
+                        newRec.theaterName = "";
+                        newRec.movieTimes.push(mfStack[i].startTime_utc);
+                        newRec.movieTimesStr = moment(mfStack[i].startTime_utc).format("h:mma");
+                        var newTheater = theaterObj.retMatchRecFromCinemaStack(searchCinemaID);
+                        newRec.theaterName = newTheater.theaterName;
+                        newRec.address.dispText = newTheater.address.dispText;
+                        newRec.address.houseNum = newTheater.address.houseNum;
+                        newRec.address.street = newTheater.address.street;
+                        newRec.address.city = newTheater.address.city;
+                        newRec.address.state = newTheater.address.state;
+                        newRec.address.zipCode = newTheater.address.zipCode;
+                        newRec.address.geoLocLat = newTheater.address.geoLocLat;
+                        newRec.address.geoLocLong = newTheater.address.geoLocLong;
+                        newRec.distToCenter = newTheater.distToCenter;
+                        newRec.travelToTime = newTheater.travelToTime;
+                        newRec.travelFromTime = newTheater.travelFromTime;
+                        tmStack.push(newRec);
+                        continLoop = false;
+                    };
+                };
+            };
+        };
+        //now sort the stack
+        tmStack.sort(function (a, b) { return a.distToCenter - b.distToCenter });
+
+    },
+
     EOR: ""    //place keeper so don't have to worry about stupid commas
 };
 
-var testSearch = function () {
+var startSearches = function () {
+    //entry point to do a search
+    //global function outside of the theaterObj
     theaterObj.clearStack();
-    document.getElementById("container-map").style.display = "none";
-
-    modalWaitSearch1.style.display = "block";
+    if (configData.dispRichOutput == true) {
+        modalMap.style.display = "none";
+        //document.getElementById("container-map").style.display = "none";
+    };
 
     //clear all the movie theaters found in the area
     for (var i = 0; i < theaterObj.theatersFoundStack.length; i++) {
@@ -673,9 +898,14 @@ var testSearch = function () {
         theaterObj.cinemaIDstack.pop();
     };
 
-    theaterObj.doSearchInitial();
-    console.log("data search done = " + dataSrchDone);
-    console.log("waiting for a return");
+    if (configData.dispRichOutput != true) {
+        theaterObj.searchLoc.dist = numeral($("#distance").val() * 1.60934).format("+0000.0000");
+    };
+
+    //used to call:  theaterObj.doSearchInitial();
+    //now done in   geo conversion
+    //so, go and check the address to geo conversion
+    checkAndConvertAddrToGeo();
 };
 
 
@@ -683,28 +913,30 @@ var outputMovies = function () {
     //outputs search to movies
     var divOutput = $("#movieOutput");
     divOutput.html("");
+    var divTop = $("#top-panel-div");
+    divTop.html("");
+    var divBottom = $("#bottom-panel-div");
+    divBottom.html("");
     var mStack = theaterObj.movieStack;
     var numFound = mStack.length;
 
     //findings heading
     var newRow = $("<div>");
     $(newRow).addClass("row");
-    var newPtag = $("<p>");
-    var H3tag = $("<h3>");
-    var findingsStr = "What was found:";
-    $(H3tag).text(findingsStr);
-    $(H3tag).appendTo(newPtag);
-    $(newPtag).appendTo(newRow);
-
+    //var newPtag = $("<p>");
     var H4tag = $("<h4>");
-    findingsStr = "Num of movies = " + numFound;
-    findingsStr += " in " + theaterObj.cinemaIDstack.length + " theaters.";
+    H4tag.css("margin", "3px");
+    var findingsStr = "found: ";
+    // $(H3tag).text(findingsStr);
+    // $(H3tag).appendTo(newRow);
+    // $(newPtag).appendTo(newRow);
+
+    // var H4tag = $("<h4>");
+    findingsStr += numFound;
+    findingsStr += " movies in " + theaterObj.cinemaIDstack.length + " theaters.";
+    findingsStr += " covering " + theaterObj.genresStack.length + " genres.";
     $(H4tag).text(findingsStr);
-    $(H4tag).appendTo(newPtag);
-    H4tag = $("<h4>");
-    findingsStr = "Num of genres = " + theaterObj.genresStack.length;
-    $(H4tag).text(findingsStr);
-    $(H4tag).appendTo(newPtag);
+    $(H4tag).appendTo(newRow);
 
     theaterObj.genresStack.sort();
     newPtag = $("<p>");
@@ -718,8 +950,17 @@ var outputMovies = function () {
     $(newPtag).text(genresFoundStr);
     $(newPtag).appendTo(newRow);
 
-    $(newRow).appendTo(divOutput);
+    $(newRow).appendTo(divTop);
 
+    //put heading in the movies found
+    var newRow = $("<div>");
+    $(newRow).addClass("row");
+    H4tag = $("<h4>");
+    H4tag.css("margin", "3px");
+    var outputStr = "click on a movie picture to select";
+    $(H4tag).text(outputStr);
+    $(H4tag).appendTo(newRow);
+    $(newRow).appendTo(divOutput);
 
     for (var i = 0; i < numFound; i++) {
         //loop thru the all movies found
@@ -791,7 +1032,7 @@ var outputMovies = function () {
         var divPanelBody = $("<div>");
         $(divPanelBody).addClass("panel-body");
         $(divPanelBody).addClass("panelMinPadding");
-        $(imgTag).appendTo(divPanelBody);  //iamge goes onto the panel body
+        $(imgTag).appendTo(divPanelBody);  //imsage goes onto the panel body
         $(divPanelBody).appendTo(divPanel);
 
         $(divPanel).appendTo(newRow);
@@ -846,7 +1087,8 @@ var outputMovies = function () {
 
 var outputTheaters = function () {
     //outputs search to movies
-    var divOutput = $("#movieOutput");
+    var divOutput = $("#bottom-panel-div");
+    divOutput.html("");
     //divOutput.html("");
     var tfStack = theaterObj.theatersFoundStack;
     var numFound = tfStack.length;
@@ -881,7 +1123,7 @@ var outputTheaters = function () {
         var geoLat = tfStack[i].address.geoLocLat;
         var geoLong = tfStack[i].address.geoLocLong;
         var distToCenter = tfStack[i].distToCenter;
-
+        var travelToTime = tfStack[i].travelToTime;
 
         var H3tag = $("<h4>");
         $(H3tag).css("line-height", "1.0");
@@ -923,18 +1165,8 @@ var outputTheaters = function () {
         $(H4tag).css("line-height", "1.0");
         $(H4tag).css("margin", "0px");
         $(H4tag).css("padding", "0px");
-        var line4str = "Geo loc: (" + geoLat + " , " + geoLong + " )";
-        $(H4tag).text(line4str);
-        $(H4tag).appendTo(newPtag);
-        var brTag = $("<br/>");
-        $(brTag).css("line-height", "2px");
-        $(brTag).appendTo(newPtag);
-
-        H4tag = $("<h5>");
-        $(H4tag).css("line-height", "1.0");
-        $(H4tag).css("margin", "0px");
-        $(H4tag).css("padding", "0px");
-        var line5str = "Distance away: " + distToCenter;
+        var line5str = "Distance : " + numeral(distToCenter.toString()).format("0.0") + " miles";
+        line5str += " " + numeral(travelToTime.toString()).format("0.0") + " minutes";
         $(H4tag).text(line5str);
         $(H4tag).appendTo(newPtag);
         var brTag = $("<br/>");
@@ -966,7 +1198,11 @@ var outputMoviesByMovieTime = function () {
     //outputs search to movies
     var divOutput = $("#movieOutput");
     divOutput.html("");
-    var mfStack = theaterObj.movieFoundStack;  //shorthand
+    var divTop = $("#top-panel-div");
+    divTop.html("");
+    var divBottom = $("#bottom-panel-div");
+    divBottom.html("");
+   var mfStack = theaterObj.movieFoundStack;  //shorthand
     var mStack = theaterObj.movieStack;  //shorthand
     var numFound = mfStack.length;
     //sort the movies by start time
@@ -975,7 +1211,6 @@ var outputMoviesByMovieTime = function () {
     //move to local variables for show and tell purposes
     //theaterObj.retMatchRecFromMovieStack(mfStack[theaterObj.numMovieClickedIndex].movie_id);
     var movieRec = theaterObj.retMatchRecFromMovieStack(mStack[theaterObj.numMovieClickedIndex].movie_id);
-    console.log("back from match");
     var movieTitle = movieRec.title;
     var movieRunTime = movieRec.runtime;
     var movieSynopsis = movieRec.synopsis;
@@ -1023,9 +1258,10 @@ var outputMoviesByMovieTime = function () {
     var brTag = $("<br/>");
     $(brTag).appendTo(newPtag);
     $(newPtag).appendTo(newRow);        //hor row
-    $(newRow).appendTo(divOutput);
+    $(newRow).appendTo(divTop);
     newRow = $("<div>");
     $(newRow).addClass("row");
+    $(newRow).appendTo(divTop);
 
     //findings heading
     newPtag = $("<p>");
@@ -1034,6 +1270,9 @@ var outputMoviesByMovieTime = function () {
     $(H3tag).text(findingsStr);
     $(H3tag).appendTo(newPtag);
     $(newPtag).appendTo(newRow);
+    H3tag = $("<h4>");
+    $(H3tag).text("click on a showtime for map");
+    $(H3tag).appendTo(newRow);
 
     $(newRow).appendTo(divOutput);
     newRow = $("<div>");
@@ -1053,9 +1292,7 @@ var outputMoviesByMovieTime = function () {
         $(newRow).addClass("click-theater");
         $(newRow).attr("data-theater-ind", i);  //index to theater stack 
 
-        newPtag = $("<p>");
 
-        console.log("output rec #" + i);
         //bring out as local variable for demo purposes
         var currCinemaRec = theaterObj.retMatchRecFromCinemaStack(mfStack[i].cinema_id);
         var nameStr = currCinemaRec.theaterName;
@@ -1065,21 +1302,45 @@ var outputMoviesByMovieTime = function () {
         var zipcode = currCinemaRec.address.zipCode;
         var geoLat = currCinemaRec.address.geoLocLat;
         var geoLong = currCinemaRec.address.geoLocLong;
-        var distToCenter = currCinemaRec.distToCenter;
+        var distToCenter = currCinemaRec.distToCenter.toString();
+        var travelTime = currCinemaRec.travelToTime.toString();
 
 
+        //        newPtag = $("<p>");
         H4tag = $("<h4>");
         $(H4tag).css("line-height", "1.0");
         $(H4tag).css("margin", "0px");
         $(H4tag).css("padding", "0px");
         var line3str = "" + moment(mfStack[i].startTime_utc).format("h:mm a");
-        line3str += " to " + moment.unix(mfStack[i].finishTime_ts).format("h:mm a");
         $(H4tag).text(line3str);
-        $(H4tag).appendTo(newPtag);
+        //        $(H4tag).appendTo(newPtag);
+        //$(newPtag).appendTo(newRow);
+
+        var newSpanTag = $("<span>");
+        //        H4tag = $("<h4>");
+        //        $(H4tag).css("line-height", "1.0");
+        //        $(H4tag).css("margin", "0px");
+        //        $(H4tag).css("padding", "0px");
+        $(newSpanTag).css("font-weight", "normal");
+        line3str = "  show, ends at "
+        $(newSpanTag).text(line3str);
+        $(newSpanTag).appendTo(H4tag);
+        //        $(newSpanTag).appendTo(newPtag);
+
+        newSpanTag = $("<span>");
+        //        H4tag = $("<h4>");
+        //        $(H4tag).css("line-height", "1.0");
+        //        $(H4tag).css("margin", "0px");
+        //        $(H4tag).css("padding", "0px");
+        line3str = moment.unix(mfStack[i].finishTime_ts).format("h:mm a");
+        $(newSpanTag).text(line3str);
+        $(newSpanTag).appendTo(H4tag);
         var brTag = $("<br/>");
         $(brTag).css("line-height", "2px");
-        $(brTag).appendTo(newPtag);
+        $(brTag).appendTo(H4tag);
+        $(H4tag).appendTo(newRow);
 
+        newPtag = $("<p>");
         var H3tag = $("<h4>");
         $(H3tag).css("line-height", "1.0");
         $(H3tag).css("margin", "0px");
@@ -1108,6 +1369,30 @@ var outputMoviesByMovieTime = function () {
         $(H4tag).css("padding", "0px");
         $(H4tag).text(city + " , " + state + " " + zipcode);
         $(H4tag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+
+        //travel from time
+        H4tag = $("<h5>");
+        $(H4tag).css("line-height", "1.0");
+        $(H4tag).css("margin", "0px");
+        $(H4tag).css("padding", "0px");
+        $(H4tag).text("trip details: ");
+        $(H4tag).appendTo(newPtag);
+        var brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+
+        //put in the distance and times now
+        H4tag = $("<h5>");
+        $(H4tag).css("line-height", "1.0");
+        $(H4tag).css("margin", "0px");
+        $(H4tag).css("padding", "0px");
+        $(H4tag).text("" + numeral(distToCenter).format("0.0") + " miles" + " " + numeral(travelTime).format("0.0") + " min" + " away");
+        $(H4tag).appendTo(newPtag);
         var brTag = $("<br/>");
         $(brTag).appendTo(newPtag);
 
@@ -1115,7 +1400,43 @@ var outputMoviesByMovieTime = function () {
         $(H4tag).css("line-height", "1.0");
         $(H4tag).css("margin", "0px");
         $(H4tag).css("padding", "0px");
-        $(H4tag).text("(" + numeral(geoLat).format("+0000.000000") + "," + numeral(geoLong).format("+0000.000000") + ")");
+        var tripDetails = "leave: " + moment.unix(mfStack[i].timeToLeave).format("h:mma");
+        $(H4tag).text(tripDetails);
+        $(H4tag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+
+        H4tag = $("<h5>");
+        $(H4tag).css("line-height", "1.0");
+        $(H4tag).css("margin", "0px");
+        $(H4tag).css("padding", "0px");
+        tripDetails = "movie starts: " + moment(mfStack[i].startTime_utc).format("h:mma");
+        $(H4tag).text(tripDetails);
+        $(H4tag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+
+
+        H4tag = $("<h5>");
+        $(H4tag).css("line-height", "1.0");
+        $(H4tag).css("margin", "0px");
+        $(H4tag).css("padding", "0px");
+        tripDetails = "movie ends: " + moment.unix(mfStack[i].finishTime_ts).format("h:mma");
+        $(H4tag).text(tripDetails);
+        $(H4tag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+
+        H4tag = $("<h5>");
+        $(H4tag).css("line-height", "1.0");
+        $(H4tag).css("margin", "0px");
+        $(H4tag).css("padding", "0px");
+        tripDetails = "back home at: " + moment.unix(mfStack[i].timeBack).format("h:mma");
+        $(H4tag).text(tripDetails);
+        $(H4tag).appendTo(newPtag);
+        brTag = $("<br/>");
+        $(brTag).appendTo(newPtag);
+
         $(H4tag).appendTo(newPtag);
         var brTag = $("<br/>");
         $(brTag).appendTo(newPtag);
@@ -1212,15 +1533,37 @@ var outputShowTimes = function () {
 };
 
 
+var geoPushDefault = function () {
+    //send in a default address if blocked the input
+    theaterObj.searchLoc.addrOriginalStr = "2607 W 17th St, Chicago IL 60608";
+    theaterObj.searchLoc.addrSearchStr = "2607 W 17th St, Chicago IL 60608";
+    theaterObj.searchLoc.lat = numeral(41.8583606).format("+0000.000000");
+    theaterObj.searchLoc.long = numeral(-87.69337).format("+0000.000000");
+    if (configData.dispRichOutput === true) {
+        //$("#GPScoord").text(numeral(theaterObj.searchLoc.lat).format("+0000.000000") + " , " + numeral(theaterObj.searchLoc.long).format("+0000.000000"));
+        $("#input-addr").val(theaterObj.searchLoc.addrSearchStr);
+    } else {
+        $("#cityZipSearch").val(theaterObj.searchLoc.addrSearchStr);
+    };
+
+};
+
 var getLocation = function () {
     modalWaitLocation.style.display = "block";
-    if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(showPosition);
-    } else {
-        //no GPS allowed
-        alert("Geolocation is not supported by this browser.");
+    navigator.geolocation.getCurrentPosition(showPosition,
+        function (error) {
+            //there is a problem with getting the GPS data
+
+            //alert("why cancel ?")
+            geoPushDefault();
+            modalWaitLocation.style.display = "none";
+            //showPosition();
+        });
+
+    if (configData.dispRichOutput === true) {
+        //modalMap.style.display = "none";
+        //document.getElementById("container-map").style.display = "none";
     };
-    document.getElementById("container-map").style.display = "none";
 };
 
 var showPosition = function (position) {
@@ -1228,27 +1571,191 @@ var showPosition = function (position) {
         $("#input-lat").val(numeral(position.coords.latitude).format("0000.000000"));
         $("#input-lon").val(numeral(position.coords.longitude).format("0000.000000"));
         $("#input-dist").val(numeral(configData.theaterSearchDist).format("0.0"));
-        theaterObj.searchLat = numeral(position.coords.latitude).format("0000.000000");
-        theaterObj.searchLon = numeral(position.coords.longitude).format("0000.000000");
-        theaterObj.searchDist = configData.theaterSearchDist;
+        theaterObj.searchLoc.lat = numeral(position.coords.latitude).format("0000.000000");
+        theaterObj.searchLoc.long = numeral(position.coords.longitude).format("0000.000000");
+        theaterObj.searchLoc.dist = configData.theaterSearchDist;
+        theaterObj.addrSearchStr = "";
     } else {
-        theaterObj.searchLat = numeral(position.coords.latitude).format("0000.000000");
-        theaterObj.searchLon = numeral(position.coords.longitude).format("0000.000000");
-        theaterObj.searchDist = configData.theaterSearchDist;
+        theaterObj.searchLoc.lat = numeral(position.coords.latitude).format("0000.000000");
+        theaterObj.searchLoc.long = numeral(position.coords.longitude).format("0000.000000");
+        theaterObj.searchLoc.dist = configData.theaterSearchDist;
+        theaterObj.addrSearchStr = "";
+    };
+    //next step is to convert to a postal address
+    convertGeoToAddr();
+};
+
+var convertGeoToAddr = function () {
+    var userPositionToAddressURL = "https://maps.googleapis.com/maps/api/geocode/json?latlng=";
+    userPositionToAddressURL += numeral(theaterObj.searchLoc.lat).format("+0000.000000");
+    userPositionToAddressURL += "," + numeral(theaterObj.searchLoc.long).format("+0000.000000");
+    userPositionToAddressURL += "&key=" + configData.keyAPIgoogle;
+
+    $.ajax({
+        url: userPositionToAddressURL,
+        method: "GET"
+    }).then(function (response) {
+        theaterObj.searchLoc.addrSearchStr = response.results[0].formatted_address;
+        //store the orignal string to see if need to re-compute geo location
+        theaterObj.searchLoc.addrOriginalStr = theaterObj.searchLoc.addrSearchStr;
+        if (configData.dispRichOutput != true) {
+            $("#cityZipSearch").val(theaterObj.searchLoc.addrSearchStr);
+        } else {
+            //$("#GPScoord").text(numeral(theaterObj.searchLoc.lat).format("+0000.000000") + " , " + numeral(theaterObj.searchLoc.long).format("+0000.000000"));
+            $("#input-addr").val(theaterObj.searchLoc.addrSearchStr);
+        };
+        //turn off wait location
+        modalWaitLocation.style.display = "none";
+    });
+};
+
+var checkAndConvertAddrToGeo = function () {
+    // take address typed in an convert to Geo Location
+    // RPB to implement
+    //turn on wait location
+    modalWaitLocation.style.display = "block";
+
+    //read in the current inputted address and see if it changed
+    var origAddrStr;
+    if (theaterObj.searchLoc.addrOriginalStr == undefined || theaterObj.searchLoc.addrOriginalStr == null) {
+        origAddrStr = "";
+    } else {
+        origAddrStr = theaterObj.searchLoc.addrOriginalStr.trim();
     };
 
-    modalWaitLocation.style.display = "none";
+    //need to check for blanks and null before accepting page's address
+    var strIn;
     if (configData.dispRichOutput != true) {
-        //not test mode, but full versions
-        testSearch();
+        //full page
+        strIn = $("#cityZipSearch").val();
+    } else {
+        //rich's test screen has different data
+        var strIn = $("#input-addr").val();
+    };
+    if (strIn == null || strIn == undefined) {
+        //handle a blank input
+        strIn = "";
+    };
+    var pageAddrStr = strIn.trim();  //address inputted on page
+
+    if (origAddrStr != pageAddrStr) {
+        //need to do a new search to get new geo location
+        //for testing false or bad location, just force in a known address
+        if (configData.dispRichTestFalseGPS == true) {
+            //for now, just blast in 467 W. second street address
+            theaterObj.searchLoc.addrOriginalStr = "467 W. Second Street, Elmhurst IL 60126";
+            theaterObj.searchLoc.addrSearchStr = "467 W. Second Street, Elmhurst IL 60126";
+            theaterObj.searchLoc.lat = numeral(41.9057183).format("+0000.000000");
+            theaterObj.searchLoc.long = numeral(-87.9747192).format("+0000.000000");
+            if (configData.dispRichOutput != true) {
+                $("#cityZipSearch").val(theaterObj.searchLoc.addrSearchStr);
+            } else {
+                //$("#GPScoord").text(numeral(theaterObj.searchLoc.lat).format("+0000.000000") + " , " + numeral(theaterObj.searchLoc.long).format("+0000.000000"));
+                $("#input-addr").val(theaterObj.searchLoc.addrSearchStr);
+            };
+            doneConvertAddrToGeo();
+        } else {
+            //needs new geo location based on address and NOT in test mode
+            var userAddrToGeoURL = "https://maps.googleapis.com/maps/api/geocode/json?address=" + pageAddrStr + "&key=AIzaSyAE03QBe5yDXRr1fzDvkWs9i_E_BIyCDhk";
+            $.ajax({
+                url: userAddrToGeoURL,
+                method: "GET"
+            }).then(function (response) {
+                //got the geo location
+                var locLatIn = response.results[0].geometry.location.lat;
+                var locLongIn = response.results[0].geometry.location.lng;
+                theaterObj.searchLoc.lat = numeral(locLatIn).format("+0000.000000");
+                theaterObj.searchLoc.long = numeral(locLongIn).format("+0000.000000");
+                theaterObj.searchLoc.addrSearchStr = response.results[0].formatted_address;
+
+                if (configData.dispRichOutput != true) {
+                    $("#cityZipSearch").val(theaterObj.searchLoc.addrSearchStr);
+                } else {
+                    //$("#GPScoord").text(numeral(theaterObj.searchLoc.lat).format("+0000.000000") + " , " + numeral(theaterObj.searchLoc.long).format("+0000.000000"));
+                    $("#input-addr").val(theaterObj.searchLoc.addrSearchStr);
+                };
+                doneConvertAddrToGeo();
+            });
+        }
+    } else {
+        //old addr matches, so can continue
+        doneConvertAddrToGeo();
     };
 };
 
+
+var doneConvertAddrToGeo = function () {
+    //geo conversion is done, continue on
+    //turn off wait location
+    modalWaitLocation.style.display = "none";
+    theaterObj.doSearchInitial();
+};
+
+
+var geoDistCalcBetweenPoints = function (geoPt1, geoPt2) {
+    //calculate the distance between search
+    //geoPt1  is  { lat: , lng: }
+    var Pt1 = {
+        lat: parseFloat(geoPt1.lat),
+        lng: parseFloat(geoPt1.lng)
+    };
+    var Pt1_lat_Str = numeral(Pt1.lat).format("+0000.000000");
+    var Pt1_lng_Str = numeral(Pt1.lng).format("+0000.000000");
+    Pt1_str = Pt1_lat_Str + "," + Pt1_lng_Str;
+    //Pt1_str = JSON.stringify( Pt1 );    
+
+    var Pt2 = {
+        lat: parseFloat(geoPt2.lat),
+        lng: parseFloat(geoPt2.lng)
+    };
+    var Pt2_lat_Str = numeral(Pt2.lat).format("+0000.000000");
+    var Pt2_lng_Str = numeral(Pt2.lng).format("+0000.000000");
+    Pt2_str = Pt2_lat_Str + "," + Pt2_lng_Str;
+
+    var service = new google.maps.DistanceMatrixService();
+    service.getDistanceMatrix(
+        {
+            origins: [Pt1_str],
+            destinations: [Pt2_str],
+            travelMode: google.maps.TravelMode.DRIVING,
+            unitSystem: google.maps.UnitSystem.IMPERIAL,
+            avoidHighways: false,
+            avoidTolls: false
+        }, geoDistResponded);
+
+};
+
+
+
+var geoDistHomeToTheater = function (stackToUse, indexNum) {
+    //calculate the distance of the theater and home
+    //and store it
+    var searchStack;
+
+    var Pt1 = {
+        lat: theaterObj.searchLoc.lat,
+        lng: theaterObj.searchLoc.long
+    };
+
+    if (stackToUse === "TF") { searchStack = theaterObj.theatersFoundStack };
+
+    var Pt2 = {
+        lat: searchStack[indexNum].address.geoLocLat,
+        lng: searchStack[indexNum].address.geoLocLong
+    };
+
+    theaterObj.geoLookup.recIndexOn = indexNum;
+    theaterObj.geoLookup.currStackWorkingOn = stackToUse;
+    geoDistCalcBetweenPoints(Pt1, Pt2);
+};
+
+
+
 var evalPicClick = function () {
     //a picture got clicked
+    //so user picked a movie and now needs the theaters associated with it
     var imgClicked = $(this).attr("data-image");
     modalWaitMovieTimes.style.display = "block";
-    console.log("picture clicked " + imgClicked);
     var divOutput = $("#movieOutput");
     divOutput.html("");
     theaterObj.numMovieClickedIndex = parseInt(imgClicked);
@@ -1258,13 +1765,24 @@ var evalPicClick = function () {
     outputMoviesByMovieTime();
 };
 
+
 var evalTheaterClick = function () {
     //theater option clicked
-    var theaterRow = $(this).attr("data-theater-ind");
-    console.log("theater #" + theaterRow);
+    //so at this point know what movie want to see 
+    //and the theater going to
+    var currCinemaRec;
     var mfStack = theaterObj.movieFoundStack;  //shorthand
-    var currCinemaRec = theaterObj.retMatchRecFromCinemaStack(mfStack[theaterRow].cinema_id);
-    var ctRec = theaterObj.currTheater;   //shorthand for current theater record
+    if (configData.dispRichOutput == true) {
+        var theaterRow = $(this).attr("data-theater-ind");
+        currCinemaRec = theaterObj.retMatchRecFromCinemaStack(mfStack[theaterRow].cinema_id);
+    } else {
+        //came from index file, so need different way to pull
+        //so cinema ID comes from theatersMatchStack     
+        var thPicked = theaterObj.theaterPicked;
+        var TMstack = theaterObj.theatersMatchStack; //shorthand to make next line readable
+        currCinemaRec = theaterObj.retMatchRecFromCinemaStack(TMstack[thPicked].cinema_id);
+    }
+    var ctRec = theaterObj.currTheaterDisp;   //shorthand for current theater record
     var geoLat = currCinemaRec.address.geoLocLat;
     var geoLong = currCinemaRec.address.geoLocLong;
 
@@ -1274,9 +1792,11 @@ var evalTheaterClick = function () {
 
     //move to current record spot
     ctRec.cinema_id = currCinemaRec.cinema_id;
+    ctRec.theaterName = currCinemaRec.theaterName;
     ctRec.distToCenter = currCinemaRec.distToCenter;
     ctRec.telephone = currCinemaRec.telephone;
-    ctRec.travelTime = currCinemaRec.travelTime;
+    ctRec.travelToTime = currCinemaRec.travelToTime;
+    ctRec.travelFromTime = currCinemaRec.travelFromTime;
     ctRec.url = currCinemaRec.url;
     ctRec.address.city = currCinemaRec.address.city;
     ctRec.address, dispText = currCinemaRec.address.dispText;
@@ -1287,12 +1807,15 @@ var evalTheaterClick = function () {
     ctRec.address.street = currCinemaRec.address.street;
     ctRec.address.zipCode = currCinemaRec.address.zipCode;
 
-    document.getElementById("container-map").style.display = "block";
-    // popup is shown and map is not visible
-    google.maps.event.trigger(map, 'resize');
-    initMap();
-
-    console.log("(" + numeral(geoLat).format("+0000.000000") + "," + numeral(geoLong).format("+0000.000000") + ")");
+    if (configData.dispRichOutput == true) {
+        displayMap(true);
+        //document.getElementById("container-map").style.display = "block";
+        // popup is shown and map is not visible
+        //google.maps.event.trigger(map, 'resize');
+    } else {
+        //in case need to do something special in the index.html file
+        displayMap(true);
+    };
 
 };
 
@@ -1301,7 +1824,8 @@ var evalTheaterClick = function () {
 //move to restaurant search later
 var restRecOpenTableType = { //record coming back from OpenTable
     name: "",
-    address : {
+    restID: "",
+    address: {
         dispText: "",
         houseNum: "",
         street: "",
@@ -1311,9 +1835,12 @@ var restRecOpenTableType = { //record coming back from OpenTable
         geoLocLat: 0,
         geoLocLong: 0
     },
+    telephone: "",
     urlOpenTableSite: "",  //open table url
     urlOpenTableReservation: "",
-    urlRestaurang: "",
+    urlOpenTableMobileReserv: "",
+    urlOpenTableImage: "",
+    urlRestaurant: "",
     distToTheater: 0,
     travelTimeToTheater: 0,
     distToHome: 0,
@@ -1322,24 +1849,110 @@ var restRecOpenTableType = { //record coming back from OpenTable
 };
 
 var restOpenTableObj = { //everything for OpenTable
-    currRestOpenTable : restRecOpenTableType,
-    restFoundStack : [],  //array of restRecOpenTableType
-    
-    clearRestFoundStack : function() {
+    currRestOpenTable: restRecOpenTableType,
+    restFoundStack: [],  //array of restRecOpenTableType
+
+    clearRestFoundStack: function () {
         //clear out the entire stack
-        for (var i=0; i<restOpenTableObj.restFoundStack.length; i++ ) {
+        for (var i = 0; i < restOpenTableObj.restFoundStack.length; i++) {
             restOpenTableObj.restFoundStack.pop();
         };
     },
 
-    addToRestFoundStack : function() {
-            //adds the currRestOpen rec to the stack
-            var copyOfRec = jQuery.extend(true, {}, this.currRestOpenTable);
-            this.restFoundStack.push(copyOfRec);
+    addToRestFoundStack: function () {
+        //adds the currRestOpen rec to the stack
+        var copyOfRec = jQuery.extend(true, {}, this.currRestOpenTable);
+        this.restFoundStack.push(copyOfRec);
     },
 
-    retIsRestOnOpenTable : function() {
+    copyResponseToCurrRec: function (OTresponse) {
+        recCurr = this.currRestOpenTable;  //for shorthand
+        recIn = OTresponse; //shorthand
+        recCurr.restID = recIn.id;
+        recCurr.name = recIn.name;
+        recCurr.address.dispText = recIn.address;
+        recCurr.address.city = recIn.city;
+        recCurr.address.state = recIn.state;
+        recCurr.zipCode = recIn.postal_code;
+        recCurr.address.geoLocLat = recIn.lat;
+        recCurr.address.geoLocLong = recIn.lng;
+        recCurr.telephone = recIn.phone;
+        recCurr.urlOpenTableReservation = recIn.reserve_url;
+        recCurr.urlOpenTableMobileReserv = recIn.mobile_reserve_url;
+        recCurr.urlOpenTableImage = recIn.image_url;
+    },
 
+    retIsRestOnOpenTable: function () {
+        //go thru the entire file and see if there is a match
+        var numInStack = this.restFoundStack.length;
+        var iLoop = 0;
+        var continLoop = true;
+        do {
+            iLoop++
+            if (iLoop >= numInStack) {
+                continLoop = false;
+            }
+        } while (continLoop === true);
     }
 };
+
+var displayMap = function (dispOn) {
+    //display the map if the dispOn is on
+    if (dispOn === true) {
+        modalMap.style.display = "block";
+        initMap();
+    } else {
+        modalMap.style.display = "none";
+    };
+};
+
+
+
+// When the user clicks anywhere outside of the modal, close it
+window.onclick = function (event) {
+    //just mass close everything
+    //replace with Case statement  in future
+    if (event.target == modalMap) {
+        modalMap.style.display = "none";
+    }
+};
+
+
+var hideLineTheater = function (tNum) {
+    //hide a theater
+    if (tNum == 2) { $("#theater2").css("display", "none"); };
+    if (tNum == 3) { $("#theater3").css("display", "none"); };
+};
+
+
+
+var geoDistResponded = function (response, status) {
+    if (status != google.maps.DistanceMatrixStatus.OK) {
+        alert("error in calculating distance");
+        console.log("dist calc erro = ", err);
+    } else {
+        var origin = response.originAddresses[0];
+        var destination = response.destinationAddresses[0];
+        if (response.rows[0].elements[0].status === "ZERO_RESULTS") {
+            alert("no land roads between your points");
+            console.log("no land roads");
+        } else {
+            var distance = response.rows[0].elements[0].distance;
+            var distance_value = distance.value;
+            var miles = parseFloat(distance_value) / 1609.344;
+            console.log("distance = " + miles);
+            theaterObj.geoLookup.geoDistFound = miles;
+            var timeInSecs = response.rows[0].elements[0].duration.value;
+            var timeInMin = parseFloat(timeInSecs) / 60.00;
+            theaterObj.geoLookup.geoTimeTravel = timeInMin;
+            console.log("time in min = " + timeInMin);
+
+            //now figure out what to do next
+            if (theaterObj.geoLookup.currStackWorkingOn === "TF") {
+                theaterObj.geoDistHomeToTheater_next("TF");
+            };
+        };
+    };
+};
+
 
